@@ -8,286 +8,13 @@
 #include "mmesh/trimesh/polygonstack.h"
 #include "mmesh/trimesh/trimeshutil.h"
 #include "mmesh/create/createcylinder.h"
+#include "mmesh/trimesh/split.h"
 #include "mmesh/util/drill.h"
 #include "trimesh2/Vec3Utils.h"
 #include "trimesh2/quaternion.h"
 
 namespace splitslot
 {
-
-	void lines2polygon(std::vector<trimesh::vec3>& lines, std::vector<std::vector<int>>& polygons, std::vector<trimesh::vec3>& uniPoints)
-	{
-		size_t size = lines.size();
-		size_t segsize = size / 2;
-
-		class point_cmp
-		{
-		public:
-			point_cmp(float e = FLT_MIN) :eps(e) {}
-
-			bool operator()(const trimesh::vec3& v0, const trimesh::vec3& v1) const
-			{
-				if (fabs(v0.x - v1.x) <= eps)
-				{
-					if (fabs(v0.y - v1.y) <= eps)
-					{
-						return (v0.z < v1.z - eps);
-					}
-					else return (v0.y < v1.y - eps);
-				}
-				else return (v0.x < v1.x - eps);
-			}
-		private:
-			float eps;
-		};
-
-		typedef std::map<trimesh::vec3, int, point_cmp> unique_point;
-		typedef unique_point::iterator point_iterator;
-
-		struct segment
-		{
-			int start;
-			int end;
-		};
-
-		typedef std::map<trimesh::vec3, int, point_cmp> unique_point;
-		typedef unique_point::iterator point_iterator;
-		unique_point points;
-
-		auto f = [&points](const trimesh::vec3& v)->int {
-			int index = -1;
-			point_iterator it = points.find(v);
-			if (it != points.end())
-			{
-				index = (*it).second;
-			}
-			else
-			{
-				index = (int)points.size();
-				points.insert(unique_point::value_type(v, index));
-			}
-
-			return index;
-		};
-
-		std::vector<segment> segments(segsize);
-		for (size_t i = 0; i < segsize; ++i)
-		{
-			trimesh::vec3 v1 = lines.at(2 * i);
-			trimesh::vec3 v2 = lines.at(2 * i + 1);
-
-			segments.at(i).start = f(v1);
-			segments.at(i).end = f(v2);
-		}
-
-		std::vector<trimesh::vec3> vecpoints(points.size());
-		for (auto it = points.begin(); it != points.end(); ++it)
-		{
-			vecpoints.at((*it).second) = (*it).first;
-		}
-
-		std::vector<segment*> segmap(points.size(), nullptr);
-		for (segment& s : segments)
-		{
-			segmap.at(s.start) = &s;
-		}
-
-		std::vector<bool> used(points.size(), false);
-
-		auto check = [&used]() ->int {
-			int index = -1;
-			size_t size = used.size();
-			for (size_t i = 0; i < size; ++i)
-			{
-				if (!used.at(i))
-				{
-					index = (int)i;
-					break;
-				}
-			}
-			return index;
-		};
-
-		struct IndexPolygon
-		{
-			std::list<int> polygon;
-			int start;
-			int end;
-
-			bool closed()
-			{
-				return (polygon.size() >= 2) && (polygon.front() == polygon.back());
-			}
-		};
-
-		std::vector<IndexPolygon> indexPolygons;
-		int index = check();
-		while (index >= 0)
-		{
-			used.at(index) = true;
-			segment* seg = segmap.at(index);
-			if (seg)
-			{
-				int s = seg->start;
-				int e = seg->end;
-
-				bool find = false;
-				for (IndexPolygon& polygon : indexPolygons)
-				{
-					if (s == polygon.end)
-					{
-						polygon.polygon.push_back(e);
-						polygon.end = e;
-						find = true;
-					}
-					else if (e == polygon.start)
-					{
-						polygon.polygon.push_front(s);
-						polygon.start = s;
-						find = true;
-					}
-
-					if (find)
-						break;
-				}
-
-				if (!find)
-				{
-					IndexPolygon polygon;
-					polygon.polygon.push_back(s);
-					polygon.polygon.push_back(e);
-					polygon.start = s;
-					polygon.end = e;
-					indexPolygons.emplace_back(polygon);
-				}
-			}
-			index = check();
-		}
-		size_t indexPolygonSize = indexPolygons.size();
-		std::map<int, IndexPolygon*> IndexPolygonMap;
-		for (size_t i = 0; i < indexPolygonSize; ++i)
-		{
-			IndexPolygon& p1 = indexPolygons.at(i);
-			if (!p1.closed())
-				IndexPolygonMap.insert(std::pair<int, IndexPolygon*>(p1.start, &p1));
-		}
-
-		////sort
-		//for (size_t i = 0; i < indexPolygonSize; ++i)
-		//{
-		//	IndexPolygon& p1 = indexPolygons.at(i);
-		//	for (size_t j = i + 1; j < indexPolygonSize; ++j)
-		//	{
-		//		IndexPolygon& p2 = indexPolygons.at(j);
-
-		//		if (p1.end > p2.start)
-		//		{
-		//			std::swap(p1.polygon, p2.polygon);
-		//			std::swap(p1.start, p2.start);
-		//			std::swap(p1.end, p2.end);
-		//		}
-		//	}
-		//}
-		//combime
-		for (size_t i = 0; i < indexPolygonSize; ++i)
-		{
-			IndexPolygon& p1 = indexPolygons.at(i);
-
-			if (p1.polygon.size() == 0 || p1.closed())
-				continue;
-
-			auto it = IndexPolygonMap.find(p1.end);
-			while (it != IndexPolygonMap.end())
-			{
-
-				IndexPolygon& p2 = *(*it).second;
-				if (p2.polygon.size() == 0)
-					break;
-
-				bool merged = false;
-				if (p1.start == p2.end)
-				{
-					p1.start = p2.start;
-					for (auto iter = p2.polygon.rbegin(); iter != p2.polygon.rend(); ++iter)
-					{
-						if ((*iter) != p1.polygon.front()) p1.polygon.push_front((*iter));
-					}
-					merged = true;
-				}
-				else if (p1.end == p2.start)
-				{
-					p1.end = p2.end;
-					for (auto iter = p2.polygon.begin(); iter != p2.polygon.end(); ++iter)
-					{
-						if ((*iter) != p1.polygon.back()) p1.polygon.push_back((*iter));
-					}
-					merged = true;
-				}
-
-				if (merged)
-				{
-					p2.polygon.clear();
-				}
-				else
-					break;
-
-				it = IndexPolygonMap.find(p1.end);
-			}
-
-			//for (size_t j = i + 1; j < indexPolygonSize; ++j)
-			//{
-			//	IndexPolygon& p2 = indexPolygons.at(j);
-			//	if (p2.polygon.size() == 0)
-			//		continue;
-
-			//	bool merged = false;
-			//	if (p1.start == p2.end)
-			//	{
-			//		p1.start = p2.start;
-			//		for (auto it = p2.polygon.rbegin(); it != p2.polygon.rend(); ++it)
-			//		{
-			//			if ((*it) != p1.polygon.front()) p1.polygon.push_front((*it));
-			//		}
-			//		merged = true;
-			//	}else if (p1.end == p2.start)
-			//	{
-			//		p1.end = p2.end;
-			//		for (auto it = p2.polygon.begin(); it != p2.polygon.end(); ++it)
-			//		{
-			//			if ((*it) != p1.polygon.back()) p1.polygon.push_back((*it));
-			//		}
-			//		merged = true;
-			//	}
-
-			//	if (merged)
-			//	{
-			//		p2.polygon.clear();
-			//	}
-			//}
-		}
-
-		size_t polygonSize = indexPolygons.size();
-		if (polygonSize > 0)
-		{
-			polygons.reserve(polygonSize);
-			for (size_t i = 0; i < polygonSize; ++i)
-			{
-				std::vector<int> polygon;
-				IndexPolygon& ipolygon = indexPolygons.at(i);
-				for (int iindex : ipolygon.polygon)
-				{
-					polygon.push_back(iindex);
-				}
-
-				if (polygon.size() > 0)
-				{
-					polygons.emplace_back(polygon);
-				}
-			}
-		}
-		uniPoints.swap(vecpoints);
-	}
-
 	bool CyInMesh(ClipperLibXYZ::Path& _Path, ClipperLibXYZ::IntPoint apoint)
 	{
 		float Rx = 2.0;//半径
@@ -325,7 +52,7 @@ namespace splitslot
 
 
 	bool splitSlot(trimesh::TriMesh* input, const SplitPlane& plane, const SplitSlotParam& param,
-		trimesh::TriMesh** out1, trimesh::TriMesh** out2)
+		std::vector<trimesh::TriMesh*>& outMeshes)
 	{
 		size_t vertex_size = input->vertices.size();
 		if (vertex_size == 0)
@@ -559,55 +286,67 @@ namespace splitslot
 		//fill hole
 		std::vector<std::vector<int>> polygons;
 		std::vector<trimesh::vec3> points;
-		lines2polygon(lines, polygons, points);
-		std::vector<trimesh::vec3> sectionPoints = points;
-		//绕z和y旋转，使平面变平
-		const trimesh::vec3 XYnormal(0.0f, 0.0f, 1.0f);
-		trimesh::quaternion q = q.rotationTo(XYnormal, plane.normal);
-		trimesh::fxform xf = fromQuaterian(q);
-		trimesh::box3 box2;
-		for (trimesh::point& apoint : sectionPoints)
-		{
-			box2 += apoint;
-		}
-		trimesh::vec3 pointCenter = box2.center();
+		mmesh::lines2polygon(lines, polygons, points);
 
-		for (trimesh::point& apoint : sectionPoints)
-		{
-			apoint = xf * (apoint - pointCenter);
-		}
-
-
-		ClipperLibXYZ::Paths sourcePaths;
 		trimesh::TriMesh* destmeshes = new trimesh::TriMesh();
-		for (std::vector<int>& apolygon : polygons)
+		if (param.haveSlot)
 		{
-			sourcePaths.push_back(ClipperLibXYZ::Path());
-			for (int index : apolygon)
+			std::vector<trimesh::vec3> sectionPoints = points;
+			//绕z和y旋转，使平面变平
+			const trimesh::vec3 XYnormal(0.0f, 0.0f, 1.0f);
+			trimesh::quaternion q = q.rotationTo(XYnormal, plane.normal);
+			trimesh::fxform xf = fromQuaterian(q);
+			trimesh::box3 box2;
+			for (trimesh::point& apoint : sectionPoints)
 			{
-				sourcePaths[sourcePaths.size() - 1].push_back(ClipperLibXYZ::IntPoint(sectionPoints[index].x * 1000, sectionPoints[index].y * 1000, sectionPoints[index].z * 1000));
+				box2 += apoint;
+			}
+			trimesh::vec3 pointCenter = box2.center();
+
+			for (trimesh::point& apoint : sectionPoints)
+			{
+				apoint = xf * (apoint - pointCenter);
 			}
 
-			ClipperLibXYZ::PolyTree apolytree;
-			fmesh::convertPaths2PolyTree(&sourcePaths, apolytree);
-			ClipperLibXYZ::Path* skeletonPath = new ClipperLibXYZ::Path;
-			cmesh::skeletonPoints(&apolytree, skeletonPath);
-			ClipperLibXYZ::Paths skeletonPaths;
-			fmesh::sortPath(skeletonPath, &skeletonPaths);
-			ClipperLibXYZ::Paths destPaths;
-			fmesh::generateLines(skeletonPaths, destPaths, param.redius, param.gap, true);
-			//test
-			for (ClipperLibXYZ::Path& apath : destPaths)
+			ClipperLibXYZ::Paths sourcePaths;
+			for (std::vector<int>& apolygon : polygons)
 			{
-				//trimesh::TriMesh* tempMesh = new trimesh::TriMesh();
-				for (ClipperLibXYZ::IntPoint& apoint : apath)
+				sourcePaths.push_back(ClipperLibXYZ::Path());
+				for (int index : apolygon)
 				{
-					ClipperLibXYZ::IntPoint circleCenterPoint(apoint.X, apoint.Y, apoint.Z);
+					sourcePaths[sourcePaths.size() - 1].push_back(ClipperLibXYZ::IntPoint(sectionPoints[index].x * 1000, sectionPoints[index].y * 1000, sectionPoints[index].z * 1000));
+				}
+
+				ClipperLibXYZ::PolyTree apolytree;
+				fmesh::convertPaths2PolyTree(&sourcePaths, apolytree);
+				ClipperLibXYZ::Path* skeletonPath = new ClipperLibXYZ::Path;
+				cmesh::skeletonPoints(&apolytree, skeletonPath);
+				if (skeletonPath->size() == 0)
+				{
+					ClipperLibXYZ::IntPoint circleCenterPoint(pointCenter.x * 1000, pointCenter.y * 1000, pointCenter.z * 1000);
 					if (CyInMesh(sourcePaths[sourcePaths.size() - 1], circleCenterPoint))//圆柱是否超出轮廓边界
 					{
-						trimesh::point tPoint(apoint.X / 1000.0, apoint.Y / 1000.0, apoint.Z / 1000.0);
-						tPoint = trimesh::inv(xf) * tPoint + pointCenter;
+						trimesh::point tPoint = trimesh::inv(xf) * pointCenter + pointCenter;
 						destmeshes->vertices.push_back(tPoint);
+					}
+				}
+				else
+				{
+					ClipperLibXYZ::Paths skeletonPaths;
+					fmesh::sortPath(skeletonPath, &skeletonPaths);
+					ClipperLibXYZ::Paths destPaths;
+					fmesh::generateLines(skeletonPaths, destPaths, param.redius, param.gap, true);
+					for (ClipperLibXYZ::Path& apath : destPaths)
+					{
+						for (ClipperLibXYZ::IntPoint& apoint : apath)
+						{
+							if (CyInMesh(sourcePaths[sourcePaths.size() - 1], apoint))//圆柱是否超出轮廓边界
+							{
+								trimesh::point tPoint(apoint.X / 1000.0, apoint.Y / 1000.0, apoint.Z / 1000.0);
+								tPoint = trimesh::inv(xf) * tPoint + pointCenter;
+								destmeshes->vertices.push_back(tPoint);
+							}
+						}
 					}
 				}
 			}
@@ -657,8 +396,6 @@ namespace splitslot
 
 		std::vector<trimesh::TriMesh*> inMeshes;
 		inMeshes.push_back(m2);
-		m1->need_bbox();
-		out1 = &m1;
 		for (trimesh::point& apoint : destmeshes->vertices)
 		{
 			trimesh::TriMesh* cMesh0 = new trimesh::TriMesh();
@@ -669,18 +406,16 @@ namespace splitslot
 			trimesh::TriMesh* cMesh = new trimesh::TriMesh();
 			cMesh = mmesh::createSoupCylinder(50, param.redius, param.depth, apoint, plane.normal);
 			mmesh::dumplicateMesh(cMesh);
-			trimesh::TriMesh* outTemp = mmesh::drill(*out1, cMesh, nullptr, nullptr);
+			trimesh::TriMesh* outTemp = mmesh::drill(m1, cMesh, nullptr, nullptr);
 			if (outTemp)
 			{
-				out1 = &outTemp;
+				m1 = outTemp;
 			}
 		}
+		mmesh::mergeTriMesh(m2, inMeshes);
 
-		mmesh::mergeTriMesh(*out2, inMeshes);
-		//calculate convex box
-		//ConvexHullCalculator::calculate(sourthMesh, progressor);
-		//ConvexHullCalculator::calculate(out2, progressor);
-
+		outMeshes.push_back(m1);
+		outMeshes.push_back(m2);
 		return true;
 	}
 }
