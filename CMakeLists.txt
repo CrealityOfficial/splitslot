@@ -1,9 +1,11 @@
 __cc_find(Trimesh2)
 __cc_find(FMesh)
 __cc_find(CMesh)
+__cc_find(Clipper)
 __assert_target(trimesh2)
 __assert_target(fmesh)
 __assert_target(cmesh)
+__assert_target(clipper)
 
 set(SRCS splitslot/interface.h
 		 splitslot/split.h
@@ -11,7 +13,7 @@ set(SRCS splitslot/interface.h
 		 )
 		
 set(INCS)
-set(LIBS trimesh2 fmesh mmesh cmesh)
+set(LIBS trimesh2 fmesh mmesh cmesh clipper)
 set(DEFS)
 
 __add_platform_library(splitslot)

@@ -18,7 +18,12 @@ namespace splitslot
 
 	struct SplitSlotParam
 	{
-
+		bool  haveSlot;//是否生成卡扣
+		float redius;
+		float depth;
+		float gap;//图案间隔长度
+		float xyOffset;//xy内缩尺寸
+		float zOffset;//z内缩尺寸
 	};
 
 	SPLITSLOT_API bool splitSlot(trimesh::TriMesh* input, const SplitPlane& plane, const SplitSlotParam& param,
