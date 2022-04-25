@@ -58,7 +58,7 @@ namespace splitslot
 		if (vertex_size == 0)
 			return false;
 
-		trimesh::vec3 pos = input->bbox.center();
+		trimesh::vec3 pos = plane.position;
 
 		std::vector<float> distances;
 		distances.resize(vertex_size);
@@ -326,8 +326,7 @@ namespace splitslot
 					ClipperLibXYZ::IntPoint circleCenterPoint(pointCenter.x * 1000, pointCenter.y * 1000, pointCenter.z * 1000);
 					if (CyInMesh(sourcePaths[sourcePaths.size() - 1], circleCenterPoint))//Ô²ÖùÊÇ·ñ³¬³öÂÖÀª±ß½ç
 					{
-						trimesh::point tPoint = trimesh::inv(xf) * pointCenter + pointCenter;
-						destmeshes->vertices.push_back(tPoint);
+						destmeshes->vertices.push_back(pointCenter);
 					}
 				}
 				else
@@ -394,6 +393,7 @@ namespace splitslot
 			}
 		}
 
+		std::vector<mmesh::DrillParam> drillParams;
 		std::vector<trimesh::TriMesh*> inMeshes;
 		inMeshes.push_back(m2);
 		for (trimesh::point& apoint : destmeshes->vertices)
@@ -406,12 +406,28 @@ namespace splitslot
 			trimesh::TriMesh* cMesh = new trimesh::TriMesh();
 			cMesh = mmesh::createSoupCylinder(50, param.redius, param.depth, apoint, plane.normal);
 			mmesh::dumplicateMesh(cMesh);
-			trimesh::TriMesh* outTemp = mmesh::drill(m1, cMesh, nullptr, nullptr);
-			if (outTemp)
-			{
-				m1 = outTemp;
-			}
+			
+			mmesh::DrillParam adrillParam;
+			adrillParam.cylinder_depth = param.depth;
+			adrillParam.cylinder_Dir = plane.normal;
+			adrillParam.cylinder_startPos = apoint;
+			adrillParam.cylinder_radius = param.redius;
+			adrillParam.cylinder_resolution = 50;
+			drillParams.push_back(adrillParam);
+
+			//trimesh::TriMesh* outTemp = mmesh::drill(m1, cMesh, nullptr, nullptr);
+			//if (outTemp)
+			//{
+			//	m1 = outTemp;
+			//}
 		}
+
+		trimesh::TriMesh* outTemp = mmesh::drillCylinder(m1, drillParams, nullptr, nullptr);
+		if (outTemp)
+		{
+			m1 = outTemp;
+		}
+
 		mmesh::mergeTriMesh(m2, inMeshes);
 
 		outMeshes.push_back(m1);
