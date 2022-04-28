@@ -18,4 +18,6 @@ set(DEFS)
 
 __add_platform_library(splitslot)
 
-
+if(CC_INSTALL_SPLITSLOT)
+        __install_directory_specif(${CMAKE_CURRENT_SOURCE_DIR}/ splitslot)
+endif()
