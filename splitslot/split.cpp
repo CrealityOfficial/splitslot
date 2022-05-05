@@ -312,34 +312,38 @@ namespace splitslot
 			for (std::vector<int>& apolygon : polygons)
 			{
 				sourcePaths.push_back(ClipperLibXYZ::Path());
+				trimesh::box3 abox3;
 				for (int index : apolygon)
 				{
 					sourcePaths[sourcePaths.size() - 1].push_back(ClipperLibXYZ::IntPoint(sectionPoints[index].x * 1000, sectionPoints[index].y * 1000, sectionPoints[index].z * 1000));
+					abox3 += sectionPoints[index];
 				}
 
 				ClipperLibXYZ::PolyTree apolytree;
 				fmesh::convertPaths2PolyTree(&sourcePaths, apolytree);
 				ClipperLibXYZ::Path* skeletonPath = new ClipperLibXYZ::Path;
 				cmesh::skeletonPoints(&apolytree, skeletonPath);
-				if (skeletonPath->size() == 0)
+				ClipperLibXYZ::Paths skeletonPaths;
+				fmesh::sortPath(skeletonPath, &skeletonPaths);
+				ClipperLibXYZ::Paths destPaths;
+				fmesh::generateLines(skeletonPaths, destPaths, param.redius, param.gap, true);
+				if (destPaths.empty() || destPaths[0].empty())
 				{
-					ClipperLibXYZ::IntPoint circleCenterPoint(pointCenter.x * 1000, pointCenter.y * 1000, pointCenter.z * 1000);
-					if (CyInMesh(sourcePaths[sourcePaths.size() - 1], circleCenterPoint))//Ô²ÖùÊÇ·ñ³¬³öÂÖÀª±ß½ç
+					//ClipperLibXYZ::IntPoint circleCenterPoint(abox3.center().x * 1000, abox3.center().y * 1000, abox3.center().z * 1000);
+					if (1/*CyInMesh(sourcePaths[sourcePaths.size() - 1], circleCenterPoint)*/)//Ô²ÖùÊÇ·ñ³¬³öÂÖÀª±ß½ç
 					{
-						destmeshes->vertices.push_back(pointCenter);
+						trimesh::point tPoint(abox3.center().x, abox3.center().y, abox3.center().z);
+						tPoint = trimesh::inv(xf) * tPoint + pointCenter;
+						destmeshes->vertices.push_back(tPoint);
 					}
 				}
 				else
 				{
-					ClipperLibXYZ::Paths skeletonPaths;
-					fmesh::sortPath(skeletonPath, &skeletonPaths);
-					ClipperLibXYZ::Paths destPaths;
-					fmesh::generateLines(skeletonPaths, destPaths, param.redius, param.gap, true);
 					for (ClipperLibXYZ::Path& apath : destPaths)
 					{
 						for (ClipperLibXYZ::IntPoint& apoint : apath)
 						{
-							if (CyInMesh(sourcePaths[sourcePaths.size() - 1], apoint))//Ô²ÖùÊÇ·ñ³¬³öÂÖÀª±ß½ç
+							if (1/*CyInMesh(sourcePaths[sourcePaths.size() - 1], apoint)*/)//Ô²ÖùÊÇ·ñ³¬³öÂÖÀª±ß½ç
 							{
 								trimesh::point tPoint(apoint.X / 1000.0, apoint.Y / 1000.0, apoint.Z / 1000.0);
 								tPoint = trimesh::inv(xf) * tPoint + pointCenter;
