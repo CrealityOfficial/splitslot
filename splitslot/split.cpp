@@ -432,10 +432,14 @@ namespace splitslot
 			m1 = outTemp;
 		}
 
-		mmesh::mergeTriMesh(m2, inMeshes);
+		trimesh::TriMesh* mergeM2 = new trimesh::TriMesh;
+		mmesh::mergeTriMesh(mergeM2, inMeshes);
+		mmesh::dumplicateMesh(m1);
+		mmesh::dumplicateMesh(mergeM2);
+		delete m2;
 
 		outMeshes.push_back(m1);
-		outMeshes.push_back(m2);
+		outMeshes.push_back(mergeM2);
 		return true;
 	}
 }
