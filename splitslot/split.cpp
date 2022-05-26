@@ -496,7 +496,7 @@ namespace splitslot
 
 	bool splitSlotBox(trimesh::TriMesh* input, const trimesh::box3& box, const SplitSlotParam& param,
 		std::vector<trimesh::TriMesh*>& outMeshes, ccglobal::Tracer* tracer) {
-
+		bool bresult = true;
 		std::vector<SplitPlane>  planes;
 		splitBox2plane(box, planes);
 
@@ -552,9 +552,13 @@ namespace splitslot
 				}
 			}
 		}
+		else
+		{
+			bresult = false;
+		}
 
 		needDelete.clear();
-		return true;
+		return bresult;
 	}
 
 	bool splitPlaneAndBox(trimesh::TriMesh* input, const SplitPlane& plane, const trimesh::box3& box, const SplitSlotParam& param,
