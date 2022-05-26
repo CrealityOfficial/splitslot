@@ -13,6 +13,8 @@
 #include "trimesh2/Vec3Utils.h"
 #include "trimesh2/quaternion.h"
 
+#include "ccglobal/tracer.h"
+
 namespace splitslot
 {
 	bool CyInMesh(ClipperLibXYZ::Path& _Path, ClipperLibXYZ::IntPoint apoint)
@@ -50,9 +52,47 @@ namespace splitslot
 		return true;
 	}
 
+	void createPlane(const trimesh::vec3& v0, const trimesh::vec3& v1, const trimesh::vec3& v2, std::vector<SplitPlane>& planes)
+	{
+		SplitPlane plane;
+		plane.position = v0;
+		plane.normal = (v1 - v0) TRICROSS (v2 - v0);
+		trimesh::normalize(plane.normal);
+		planes.push_back(plane);
+	}
+
+	void splitBox2plane(const trimesh::box3& box, std::vector<SplitPlane>& planes)
+	{
+		trimesh::vec3 v0(box.min.x, box.min.y, box.min.z);
+		trimesh::vec3 v1(box.max.x, box.min.y, box.min.z);
+		trimesh::vec3 v2(box.max.x, box.min.y, box.max.z);
+		trimesh::vec3 v3(box.min.x, box.min.y, box.max.z);
+		trimesh::vec3 v4(box.min.x, box.max.y, box.min.z);
+		trimesh::vec3 v5(box.max.x, box.max.y, box.min.z);
+		trimesh::vec3 v6(box.max.x, box.max.y, box.max.z);
+		trimesh::vec3 v7(box.min.x, box.max.y, box.max.z);
+
+		//正面add face 1  0, 1, 2  2 3 0
+		createPlane(v0, v1, v2, planes);
+
+		//右侧面add face 1    1, 5, 6    /6, 2, 1
+		createPlane(v1, v5, v6, planes);
+
+		//背面add face 1    4, 6, 5 /6, 4, 7
+		createPlane(v4, v6, v5, planes);
+
+		//左侧面add face 1   4, 0, 3 / 3, 7, 4
+		createPlane(v4, v0, v3, planes);
+
+		//顶面add face 1  3, 2, 6 / 6, 7, 3
+		createPlane(v3, v2, v6, planes);
+
+		//底面add face 1   0, 5, 1 / 0, 4, 5
+		createPlane(v0, v5, v1, planes);
+	}
 
 	bool splitSlot(trimesh::TriMesh* input, const SplitPlane& plane, const SplitSlotParam& param,
-		std::vector<trimesh::TriMesh*>& outMeshes)
+		std::vector<trimesh::TriMesh*>& outMeshes, bool NeedMerge, bool NeedRepair)
 	{
 		size_t vertex_size = input->vertices.size();
 		if (vertex_size == 0)
@@ -286,7 +326,10 @@ namespace splitslot
 		//fill hole
 		std::vector<std::vector<int>> polygons;
 		std::vector<trimesh::vec3> points;
-		mmesh::lines2polygon(lines, polygons, points);
+		if (NeedRepair)
+		{
+			mmesh::lines2polygon(lines, polygons, points);
+		}
 
 		trimesh::TriMesh* destmeshes = new trimesh::TriMesh();
 		if (param.haveSlot)
@@ -438,8 +481,123 @@ namespace splitslot
 		mmesh::dumplicateMesh(mergeM2);
 		delete m2;
 
-		outMeshes.push_back(m1);
+		//outMeshes.push_back(m1);
+		if (NeedMerge)
+		{
+			outMeshes.push_back(m1);
+		}
+		else
+		{
+			delete m1;
+		}
 		outMeshes.push_back(mergeM2);
+		return true;
+	}
+
+	bool splitSlotBox(trimesh::TriMesh* input, const trimesh::box3& box, const SplitSlotParam& param,
+		std::vector<trimesh::TriMesh*>& outMeshes, ccglobal::Tracer* tracer) {
+
+		std::vector<SplitPlane>  planes;
+		splitBox2plane(box, planes);
+
+		if (tracer)
+		{
+			tracer->progress(0.3f);
+			if (tracer->interrupt())
+			{
+				return false;
+			}
+		}
+
+		float fp = 0.3f;
+		int conut = planes.size() > 0 ? planes.size() : 1;
+		float fstep = fp / conut;
+		int cnt = 1;
+
+		std::vector<std::vector<trimesh::TriMesh*>> needDelete;
+		std::vector<trimesh::TriMesh*> m_meshesOut;
+		outMeshes.push_back(input);
+		bool firstSplit = true;
+		for (SplitPlane sp : planes)
+		{
+			if (tracer)
+			{
+				tracer->progress(0.3 + fstep * cnt++);
+				if (tracer->interrupt())
+				{
+					return false;
+				}
+			}
+
+			for (trimesh::TriMesh* mesh : outMeshes)
+			{
+				splitslot::splitSlot(mesh, sp, param, m_meshesOut, false, false);
+			}
+
+			if (m_meshesOut.size())
+			{
+				outMeshes.clear();
+				needDelete.push_back(m_meshesOut);
+				outMeshes = m_meshesOut;
+				m_meshesOut.clear();
+			}
+		}
+		if (needDelete.size()>1)
+		{
+			for (int i = 0; i < needDelete.size() - 1; i++)
+			{
+				for (trimesh::TriMesh* mesh : needDelete[i])
+				{
+					delete mesh;
+				}
+			}
+		}
+
+		needDelete.clear();
+		return true;
+	}
+
+	bool splitPlaneAndBox(trimesh::TriMesh* input, const SplitPlane& plane, const trimesh::box3& box, const SplitSlotParam& param,
+		std::vector<trimesh::TriMesh*>& outMeshes, ccglobal::Tracer* tracer)
+	{
+		if (tracer)
+		{
+			tracer->progress(0.2f);
+			if (tracer->interrupt())
+			{
+				return false;
+			}
+		}
+
+		std::vector<trimesh::TriMesh*> _meshes;
+		splitslot::splitSlotBox(input, box, param, _meshes,tracer);
+
+		float fp = 0.3f;
+		int conut = _meshes.size() > 0 ?_meshes.size() : 1;
+		float fstep = fp / conut;
+		int cnt = 1;
+		for (trimesh::TriMesh* mesh : _meshes)
+		{
+			if (tracer)
+			{
+				tracer->progress(0.6+fstep* cnt++);
+				if (tracer->interrupt())
+				{
+					return false;
+				}
+			}
+
+			splitslot::splitSlot(mesh, plane, param, outMeshes,true,false);
+			if (!outMeshes.size())
+			{
+				outMeshes.push_back(mesh);
+			}
+			else
+			{
+				delete mesh;
+			}
+		}
+
 		return true;
 	}
 }
