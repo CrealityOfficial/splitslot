@@ -496,6 +496,56 @@ namespace splitslot
 
 	bool splitSlotBox(trimesh::TriMesh* input, const trimesh::box3& box, const SplitSlotParam& param,
 		std::vector<trimesh::TriMesh*>& outMeshes, ccglobal::Tracer* tracer) {
+
+		trimesh::TriMesh* newInput = new trimesh::TriMesh();
+		*newInput = *input;
+		bool bresult = true;
+		std::vector<SplitPlane>  planes;
+		splitBox2plane(box, planes);
+
+		if (tracer)
+		{
+			tracer->progress(0.3f);
+			if (tracer->interrupt())
+			{
+				return false;
+			}
+		}
+
+		float fp = 0.3f;
+		int conut = planes.size() > 0 ? planes.size() : 1;
+		float fstep = fp / conut;
+
+		outMeshes.push_back(newInput);
+		std::vector<trimesh::TriMesh*> m_meshesOut;
+
+		for (size_t i = 0; i < planes.size(); i++)
+		{
+			if (tracer)
+			{
+				tracer->progress(0.3 + fstep * (i+1));
+				if (tracer->interrupt())
+				{
+					return false;
+				}
+			}
+
+			for (trimesh::TriMesh* mesh : outMeshes)
+			{
+				splitslot::splitSlot(mesh, planes[i], param, m_meshesOut, false, false);
+			}
+			if (m_meshesOut.size())
+			{
+				outMeshes.clear();
+				outMeshes = m_meshesOut;
+			}
+		}
+		return bresult;
+	}
+
+#if 0
+	bool splitSlotBox1(trimesh::TriMesh* input, const trimesh::box3& box, const SplitSlotParam& param,
+		std::vector<trimesh::TriMesh*>& outMeshes, ccglobal::Tracer* tracer) {
 		bool bresult = true;
 		std::vector<SplitPlane>  planes;
 		splitBox2plane(box, planes);
@@ -542,7 +592,7 @@ namespace splitslot
 				m_meshesOut.clear();
 			}
 		}
-		if (needDelete.size()>1)
+		if (needDelete.size() > 1)
 		{
 			for (int i = 0; i < needDelete.size() - 1; i++)
 			{
@@ -552,10 +602,15 @@ namespace splitslot
 				}
 			}
 		}
+		else
+		{
+			bresult = false;
+		}
 
 		needDelete.clear();
 		return bresult;
 	}
+#endif // 0
 
 	bool splitPlaneAndBox(trimesh::TriMesh* input, const SplitPlane& plane, const trimesh::box3& box, const SplitSlotParam& param,
 		std::vector<trimesh::TriMesh*>& outMeshes, ccglobal::Tracer* tracer)
