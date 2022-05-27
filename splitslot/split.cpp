@@ -532,6 +532,7 @@ namespace splitslot
 
 			for (trimesh::TriMesh* mesh : outMeshes)
 			{
+				m_meshesOut.clear();
 				splitslot::splitSlot(mesh, planes[i], param, m_meshesOut, false, false);
 			}
 			if (m_meshesOut.size())
