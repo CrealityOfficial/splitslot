@@ -552,10 +552,6 @@ namespace splitslot
 				}
 			}
 		}
-		else
-		{
-			bresult = false;
-		}
 
 		needDelete.clear();
 		return bresult;
